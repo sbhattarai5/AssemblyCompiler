@@ -6,6 +6,8 @@
 
 //TODO
 //handle .word
+//change such that labels also maps the label to ram_address which has the value of PC
+
 
 //function_prototypes
 void initialize_reg_num_and_name(std::unordered_map< std::string, int > &, std::unordered_map< int, std::string > &, int []);
@@ -13,11 +15,15 @@ void print_registers(int [], std::unordered_map< int, std::string > & );
 void print_tokens(std::vector< std::vector< std::string > > &);
 void input_filename_and_tokenize(std::vector< std::vector< std::string > > &);
 void init_labels(std::unordered_map< std::string, int > &, std::vector< std::vector< std::string > > &);
-void run_the_program(std::vector< std::vector< std::string > > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, int []);
-void run_command(std::vector< std::string > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, int[], bool &);
+void run_the_program(std::vector< std::vector< std::string > > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, int []);
+void run_command(std::vector< std::string > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, std::unordered_map< std::string, int >&, int[], bool &);
 void init_ram_label(std::vector< std::vector< std::string > > &, int[], std::unordered_map< std::string, int > &, std::unordered_map< std::string, int > &);
-void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std::string > line, int index, std::unordered_map< std::string, int > & labels, std::unordered_map< std::string, int > & label_to_ram_address);
+void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std::string > line, int index, std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address);
 std::string give_asciiz(int [], int);
+int toint(std::string & tok);
+bool isint(std::string & tok);
+void print_ram(int ram[]);
+void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num);
 
 //constants
 const int RAM_SIZE = 32768;
@@ -28,22 +34,33 @@ int main()
     int registers[REG_SIZE] = {0};
     int ram[RAM_SIZE];
     std::vector< std::vector< std::string > > tokens;
-    std::unordered_map< std::string, int > labels;          // maps labels to PC
+    std::unordered_map< std::string, int > labels_to_pc;          // maps labels to PC
     std::unordered_map< std::string, int > label_to_ram_address;
     std::unordered_map< std::string, int > reg_name_to_num; // maps registers to integer
     std::unordered_map< int, std::string > reg_num_to_name; // maps ints to registers name
     initialize_reg_num_and_name(reg_name_to_num, reg_num_to_name, registers);
     input_filename_and_tokenize(tokens);
-    init_labels(labels, tokens);
-    init_ram_label(tokens, ram, labels, label_to_ram_address);
+    init_labels(labels_to_pc, tokens);
+    init_ram_label(tokens, ram, labels_to_pc, label_to_ram_address);
     print_tokens(tokens);
     print_registers(registers, reg_num_to_name);
-    run_the_program(tokens, labels, reg_name_to_num, registers);
-    std::cout << give_asciiz(ram, label_to_ram_address["test2"]);
+    run_the_program(tokens, labels_to_pc, label_to_ram_address, reg_name_to_num, registers);
+    print_ram(ram);
+    registers[reg_name_to_num["a0"]] = label_to_ram_address["test2"];
+    registers[reg_name_to_num["v0"]] = 4;
+    syscall(registers, ram, reg_name_to_num);
     return 0;
 }
 
-void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[], std::unordered_map< std::string, int > & labels, std::unordered_map< std::string, int > & label_to_ram_address)
+void print_ram(int ram[])
+{
+    for (int i = RAM_SIZE / 4; i < RAM_SIZE / 4 + 100; ++i)
+    {
+        std::cout << ram[i] << ' ';
+        if (i % 10 == 0) std::cout << std::endl;
+    }
+}
+void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[], std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address)
 {
     bool data_segment = false;
     int ram_index = RAM_SIZE / 4;
@@ -67,7 +84,7 @@ void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[
             std::string token = line[j]; //can be either first or second
             if (line[j] == ".asciiz") data_type = 0;
             if (line[j] == ".word") data_type = 1;
-            add_data_to_ram(data_type, ram, ram_index, line, j + 1, labels, label_to_ram_address);
+            add_data_to_ram(data_type, ram, ram_index, line, j + 1, labels_to_pc, label_to_ram_address);
         }
     }
     return;
@@ -95,7 +112,7 @@ std::string give_asciiz(int ram[], int ram_index)
 }
 
 //ram index might be out of bounds
-void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std::string > line, int index, std::unordered_map< std::string, int > & labels, std::unordered_map< std::string, int > & label_to_ram_address)
+void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std::string > line, int index, std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address)
 {
     if (data_type == -1) return;
     if (data_type == 0) //.asciiz
@@ -114,10 +131,50 @@ void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std
     }
     if (data_type == 1) //word
     {
-        
-        return;
-    } 
+        for (int j = index; j < line.size(); ++j)
+        {
+            if (isint(line[j]))
+            {
+                ram[ram_index] = toint(line[j]);
+                ++ram_index;
+            }
+            else
+            {
+                if (labels_to_pc.find(line[j]) != labels_to_pc.end()) 
+                {
+                    ram[ram_index] = labels_to_pc[line[j]];
+                    ++ram_index;
+                }
+                else if (label_to_ram_address.find(line[j]) != label_to_ram_address.end())
+                {
+                    ram[ram_index] = label_to_ram_address[line[j]];
+                    ++ram_index;
+                }
+            }
+        }
+    }
+    return;
 }
+
+bool isint(std::string & tok)
+{
+    for (int i = 0; i < tok.size(); ++i)
+    {
+        if (tok[i] < '0' || tok[i] > '9') return false;
+    }
+    return true;
+}
+
+int toint(std::string & tok)
+{
+    int num = 0;
+    for (int i = 0; i < tok.size(); ++i)
+    {
+        num = num * 10 + (tok[i] - '0');
+    }
+    return num;
+}
+
 void input_filename_and_tokenize(std::vector< std::vector< std::string > > & tokens)
 {
     std::string filename;
@@ -191,7 +248,7 @@ void print_tokens(std::vector< std::vector< std::string > > & tokens)
     return;
 }
 
-void init_labels(std::unordered_map< std::string, int > & labels, std::vector< std::vector< std::string > > & tokens)
+void init_labels(std::unordered_map< std::string, int > & labels_to_pc, std::vector< std::vector< std::string > > & tokens)
 {
     bool text_segment = false;
     for (int i = 0; i < tokens.size(); ++i)
@@ -205,30 +262,49 @@ void init_labels(std::unordered_map< std::string, int > & labels, std::vector< s
             if (first_token[first_token.size() - 1] == ':')
             {
                 std::cout << "label added!! " << "label name: " << first_token << " label_pc: " << i<< '\n'; 
-                labels[std::string(first_token, 0, first_token.size() - 1)] = i;
+                labels_to_pc[std::string(first_token, 0, first_token.size() - 1)] = i;
             }
         }
     }
     return;
 }
 
-void run_the_program(std::vector< std::vector< std::string > > & tokens, std::unordered_map< std::string, int >  & labels,
+void run_the_program(std::vector< std::vector< std::string > > & tokens, std::unordered_map< std::string, int >  & labels_to_pc, std::unordered_map< std::string, int >  & label_to_ram_address,
                      std::unordered_map< std::string, int > & reg_name_to_num, int registers[])
 {
-    if (labels.find("main") == labels.end()) return;  //main not found
-    int pc = labels["main"];
+    if (labels_to_pc.find("main") == labels_to_pc.end()) return;  //main not found
+    int pc = labels_to_pc["main"];
     while (pc != tokens.size())
     {
         bool pc_changed = false;
-        run_command(tokens[pc], labels, reg_name_to_num, registers, pc_changed);
+        run_command(tokens[pc], labels_to_pc, label_to_ram_address, reg_name_to_num, registers, pc_changed);
         if (!pc_changed) pc += 1;
     }
     std::cout << pc << std::endl;
     return;
 }
 
-void run_command(std::vector< std::string > & command, std::unordered_map< std::string, int >  & labels,
+void run_command(std::vector< std::string > & command, std::unordered_map< std::string, int >  & labels_to_pc, std::unordered_map< std::string, int >  & label_to_ram_address,
                  std::unordered_map< std::string, int > & reg_name_to_num, int registers[], bool & pc_changed)
 {
+    
+    return;
+}
+
+void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num)
+{
+    int v0 = registers[reg_name_to_num["v0"]];
+    if (v0 == 1) //print int
+    {
+        std::cout << registers[reg_name_to_num["a0"]];
+    }
+    if (v0 == 4) //print string
+    {
+        std::cout << give_asciiz(ram, registers[reg_name_to_num["a0"]]);
+    }
+    if (v0 == 5) //read int
+    {
+        std::cin >> registers[reg_name_to_num["a0"]];
+    }
     return;
 }
