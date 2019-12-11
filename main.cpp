@@ -5,9 +5,20 @@
 #include <fstream>
 
 //TODO
-//handle .word
-//change such that labels also maps the label to ram_address which has the value of PC
+//handle spaces in .asciiz, do not tokenize if you see "......   ....\n"
+//think about a way to fix the labelling
 
+//debugging function
+template < typename T >
+void print_vector(std::vector< T > & vec)
+{
+    for (int i = 0; i < vec.size(); ++i)
+    {
+        std::cout << vec[i] << ' ';
+    }
+    std::cout << std::endl;
+    return;
+}
 
 //function_prototypes
 void initialize_reg_num_and_name(std::unordered_map< std::string, int > &, std::unordered_map< int, std::string > &, int []);
@@ -42,13 +53,13 @@ int main()
     input_filename_and_tokenize(tokens);
     init_labels(labels_to_pc, tokens);
     init_ram_label(tokens, ram, labels_to_pc, label_to_ram_address);
-    print_tokens(tokens);
-    print_registers(registers, reg_num_to_name);
+    //print_tokens(tokens);
+    //print_registers(registers, reg_num_to_name);
     run_the_program(tokens, labels_to_pc, label_to_ram_address, reg_name_to_num, registers);
-    print_ram(ram);
+    //print_ram(ram);
     registers[reg_name_to_num["a0"]] = label_to_ram_address["test2"];
     registers[reg_name_to_num["v0"]] = 4;
-    syscall(registers, ram, reg_name_to_num);
+    //syscall(registers, ram, reg_name_to_num);
     return 0;
 }
 
@@ -60,6 +71,7 @@ void print_ram(int ram[])
         if (i % 10 == 0) std::cout << std::endl;
     }
 }
+
 void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[], std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address)
 {
     bool data_segment = false;
@@ -76,11 +88,11 @@ void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[
             std::string first_token = line[0];
             if (first_token[first_token.size() - 1] == ':')   //save the label address
             {
-                std::cout << "label added!! " << "label name: " << first_token << " ram_address: " << ram_index << '\n';
+                std::cout << "label added!! " << "label name: " << std::string(first_token, 0, first_token.size() - 1) << " ram_address: " << ram_index << '\n';
                 label_to_ram_address[std::string(first_token, 0, first_token.size() - 1)] = ram_index;
                 j += 1;
             }
-            if (line.size() == 1) continue;
+            if (line.size() == 1) continue; 
             std::string token = line[j]; //can be either first or second
             if (line[j] == ".asciiz") data_type = 0;
             if (line[j] == ".word") data_type = 1;
@@ -100,6 +112,7 @@ std::string give_asciiz(int ram[], int ram_index)
         {
             if (ram[index + 1] == '0') ascii_string.push_back('\0');
             if (ram[index + 1] == 'n') ascii_string.push_back('\n');
+            if (ram[index + 1] == '"') ascii_string.push_back('"');
             index += 2;
         }
         else
@@ -261,7 +274,7 @@ void init_labels(std::unordered_map< std::string, int > & labels_to_pc, std::vec
             std::string first_token = tokens[i][0];
             if (first_token[first_token.size() - 1] == ':')
             {
-                std::cout << "label added!! " << "label name: " << first_token << " label_pc: " << i<< '\n'; 
+                std::cout << "label added!! " << "label name: " << std::string(first_token, 0, first_token.size() - 1) << " label_pc: " << i<< '\n'; 
                 labels_to_pc[std::string(first_token, 0, first_token.size() - 1)] = i;
             }
         }
@@ -287,7 +300,105 @@ void run_the_program(std::vector< std::vector< std::string > > & tokens, std::un
 void run_command(std::vector< std::string > & command, std::unordered_map< std::string, int >  & labels_to_pc, std::unordered_map< std::string, int >  & label_to_ram_address,
                  std::unordered_map< std::string, int > & reg_name_to_num, int registers[], bool & pc_changed)
 {
-    
+    print_vector(command);
+    std::unordered_map< std::string, int > op_codes;
+    //TODO
+    //put immediate opcodes into consecution
+    //put lw and sw together
+    //work for constants instead of labels
+    //after the arguments are figured out, the program will be easy
+    op_codes["syscall"] = 0;
+    op_codes["li"] = 1;
+    op_codes["la"] = 2;
+    op_codes["lw"] = 3;
+    op_codes["sw"] = 4;
+    op_codes["add"] = 5;
+    op_codes["addi"] = 6;
+    op_codes["addu"] = 7;
+    op_codes["addiu"] = 8;
+    op_codes["sub"] = 9;
+    op_codes["jr"] = 10;
+    op_codes["j"] = 11;
+    op_codes["jal"] = 12;
+    op_codes["move"] = 13;
+    op_codes["beq"] = 14;
+    op_codes["bge"] = 15;
+    int op_code = -1;
+    int args[] = {-1, -1, -1};
+    int arg_index = 0;
+    int index = 0;
+    std::string current_token = command[index];
+    if (current_token[current_token.size() - 1] == ':')  //if first token is label
+        index = 1;
+    // find op_code
+    if (index == command.size()) goto temp_jump;
+    current_token = command[index];
+    if (op_codes.find(current_token) != op_codes.end())
+    {
+        op_code = op_codes[current_token]; 
+    }
+    else
+    {
+        std::cout << "Op not found\n";
+        goto temp_jump;
+    }
+
+    index += 1;
+    while(index != command.size())
+    {
+        current_token = command[index];
+        int start_index = 0;
+        int name_size = command[index].size();
+        if (current_token[0] == '$')
+        {
+            start_index++;
+            name_size--;
+        }
+        if (current_token[current_token.size() - 1] == ',')
+        {
+            name_size--;
+        }
+        std::string arg_name(command[index], start_index, name_size);
+        if (start_index == 0) //label or constant
+        {
+            if (labels_to_pc.find(arg_name) != labels_to_pc.end())
+            {
+                args[arg_index] = labels_to_pc[arg_name]; 
+                ++arg_index;
+            }
+            else if (label_to_ram_address.find(arg_name) != label_to_ram_address.end())
+            {
+                args[arg_index] = label_to_ram_address[arg_name];
+                ++arg_index;
+            }
+            else if (1 == 2) //constant or parenthesized
+            {
+                int t = 10;
+            }
+            else
+            {
+                std::cout << "Label not found\n";
+                goto temp_jump;
+            }
+            
+        }
+        else  //should be a register
+        {
+            if (reg_name_to_num.find(arg_name) != reg_name_to_num.end())
+            {
+                args[arg_index] = reg_name_to_num[arg_name];
+                ++arg_index;
+            }
+            else
+            {
+                std::cout << "Reg label not found\n";
+                goto temp_jump;
+            }
+        }
+        ++index;
+    }    
+temp_jump:
+    std::cout << op_code << ' ' << args[0] << ' ' << args[1] << ' ' << args[2] << std::endl;
     return;
 }
 
