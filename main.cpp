@@ -7,6 +7,7 @@
 //TODO
 //handle spaces in .asciiz, do not tokenize if you see "......   ....\n"
 //think about a way to fix the labelling
+//ram_index, the multiple of 4
 
 //debugging function
 template < typename T >
@@ -20,21 +21,37 @@ void print_vector(std::vector< T > & vec)
     return;
 }
 
+//const int opcode
+const int SYSCALL = 0;
+const int LI = 1;
+const int ADD = 2;
+const int SUB = 3;
+const int LW = 4;
+const int SW = 5;
+const int J = 6;
+const int JR = 7;
+const int JAL = 8;
+const int BEQ = 9;
+const int BGE = 10;
+const int MOVE = 11;
+const int LA = 12;
+
 //function_prototypes
 void initialize_reg_num_and_name(std::unordered_map< std::string, int > &, std::unordered_map< int, std::string > &, int []);
 void print_registers(int [], std::unordered_map< int, std::string > & );
 void print_tokens(std::vector< std::vector< std::string > > &);
 void input_filename_and_tokenize(std::vector< std::vector< std::string > > &);
 void init_labels(std::unordered_map< std::string, int > &, std::vector< std::vector< std::string > > &);
-void run_the_program(std::vector< std::vector< std::string > > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, int []);
-void run_command(std::vector< std::string > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, std::unordered_map< std::string, int >&, int[], bool &);
+void run_the_program(std::vector< std::vector< std::string > > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, int [], int[]);
+void run_command(std::vector< std::string > &, std::unordered_map< std::string, int >  &, std::unordered_map< std::string, int > &, std::unordered_map< std::string, int >&, int[], int &, bool &, int[]);
+void execute_command(int op_code, int args[], int arg_index, int ram[], int registers[], int & pc, bool & pc_changed, std::unordered_map< std::string, int > & reg_name_to_num);
 void init_ram_label(std::vector< std::vector< std::string > > &, int[], std::unordered_map< std::string, int > &, std::unordered_map< std::string, int > &);
 void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std::string > line, int index, std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address);
 std::string give_asciiz(int [], int);
 int toint(std::string & tok);
 bool isint(std::string & tok);
 void print_ram(int ram[]);
-void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num);
+void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num, bool&);
 
 //constants
 const int RAM_SIZE = 32768;
@@ -55,11 +72,12 @@ int main()
     init_ram_label(tokens, ram, labels_to_pc, label_to_ram_address);
     //print_tokens(tokens);
     //print_registers(registers, reg_num_to_name);
-    run_the_program(tokens, labels_to_pc, label_to_ram_address, reg_name_to_num, registers);
+    run_the_program(tokens, labels_to_pc, label_to_ram_address, reg_name_to_num, registers, ram);
     //print_ram(ram);
-    registers[reg_name_to_num["a0"]] = label_to_ram_address["test2"];
-    registers[reg_name_to_num["v0"]] = 4;
-    //syscall(registers, ram, reg_name_to_num);
+    //registers[reg_name_to_num["a0"]] = label_to_ram_address["test2"];
+    //registers[reg_name_to_num["v0"]] = 4;
+    //bool temp;
+    //syscall(registers, ram, reg_name_to_num, temp);
     return 0;
 }
 
@@ -171,7 +189,9 @@ void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std
 
 bool isint(std::string & tok)
 {
-    for (int i = 0; i < tok.size(); ++i)
+    int i = 0;
+    if (tok[0] == '-') ++i;
+    for (i; i < tok.size(); ++i)
     {
         if (tok[i] < '0' || tok[i] > '9') return false;
     }
@@ -180,11 +200,19 @@ bool isint(std::string & tok)
 
 int toint(std::string & tok)
 {
+    bool isneg = false;
+    int i = 0;
+    if (tok[0] == '-')
+    {
+        isneg = true;
+        ++i;
+    }
     int num = 0;
-    for (int i = 0; i < tok.size(); ++i)
+    for (i; i < tok.size(); ++i)
     {
         num = num * 10 + (tok[i] - '0');
     }
+    if (isneg) num = -num;
     return num;
 }
 
@@ -283,14 +311,14 @@ void init_labels(std::unordered_map< std::string, int > & labels_to_pc, std::vec
 }
 
 void run_the_program(std::vector< std::vector< std::string > > & tokens, std::unordered_map< std::string, int >  & labels_to_pc, std::unordered_map< std::string, int >  & label_to_ram_address,
-                     std::unordered_map< std::string, int > & reg_name_to_num, int registers[])
+                     std::unordered_map< std::string, int > & reg_name_to_num, int registers[], int ram[])
 {
     if (labels_to_pc.find("main") == labels_to_pc.end()) return;  //main not found
     int pc = labels_to_pc["main"];
-    while (pc != tokens.size())
+    while (pc != tokens.size() && pc != -1)
     {
         bool pc_changed = false;
-        run_command(tokens[pc], labels_to_pc, label_to_ram_address, reg_name_to_num, registers, pc_changed);
+        run_command(tokens[pc], labels_to_pc, label_to_ram_address, reg_name_to_num, registers, pc, pc_changed, ram);
         if (!pc_changed) pc += 1;
     }
     std::cout << pc << std::endl;
@@ -298,7 +326,7 @@ void run_the_program(std::vector< std::vector< std::string > > & tokens, std::un
 }
 
 void run_command(std::vector< std::string > & command, std::unordered_map< std::string, int >  & labels_to_pc, std::unordered_map< std::string, int >  & label_to_ram_address,
-                 std::unordered_map< std::string, int > & reg_name_to_num, int registers[], bool & pc_changed)
+                 std::unordered_map< std::string, int > & reg_name_to_num, int registers[], int & pc, bool & pc_changed, int ram[])
 {
     print_vector(command);
     std::unordered_map< std::string, int > op_codes;
@@ -307,24 +335,20 @@ void run_command(std::vector< std::string > & command, std::unordered_map< std::
     //put lw and sw together
     //work for constants instead of labels
     //after the arguments are figured out, the program will be easy
-    op_codes["syscall"] = 0;
-    op_codes["li"] = 1;
-    op_codes["la"] = 2;
-    op_codes["lw"] = 3;
-    op_codes["sw"] = 4;
-    op_codes["add"] = 5;
-    op_codes["addi"] = 6;
-    op_codes["addu"] = 7;
-    op_codes["addiu"] = 8;
-    op_codes["sub"] = 9;
-    op_codes["jr"] = 10;
-    op_codes["j"] = 11;
-    op_codes["jal"] = 12;
-    op_codes["move"] = 13;
-    op_codes["beq"] = 14;
-    op_codes["bge"] = 15;
+    op_codes["syscall"] = SYSCALL;
+    op_codes["li"] = LI;
+    op_codes["la"] = LA;
+    op_codes["lw"] = LW;
+    op_codes["sw"] = SW;
+    op_codes["add"] = ADD;
+    op_codes["jr"] = JR;
+    op_codes["j"] = J;
+    op_codes["jal"] = JAL;
+    op_codes["move"] = MOVE;
+    op_codes["beq"] = BEQ;
+    op_codes["bge"] = BGE;
     int op_code = -1;
-    int args[] = {-1, -1, -1};
+    int args[3] = {0};
     int arg_index = 0;
     int index = 0;
     std::string current_token = command[index];
@@ -371,9 +395,49 @@ void run_command(std::vector< std::string > & command, std::unordered_map< std::
                 args[arg_index] = label_to_ram_address[arg_name];
                 ++arg_index;
             }
-            else if (1 == 2) //constant or parenthesized
+            else if (op_code == LI || op_code == LW || op_code == SW) //immediate or lw or sw
             {
-                int t = 10;
+                if (isint(arg_name)) //immediate
+                {
+                    args[arg_index] = toint(arg_name);
+                    ++arg_index;
+                }
+                else //try lw, sw  // find constant and register_inside_paren
+                {
+                    std::string constant;
+                    std::string register_inside_paren;
+                    int k = 0;
+                    while(k != arg_name.size() && arg_name[k] != '(')
+                    {
+                        constant.push_back(arg_name[k]);
+                        ++k;
+                    }
+                    if (constant.size() == 0 || !(isint(constant)) || k == arg_name.size())
+                    {
+                        std::cout << "Constant in sw or lw is not a valid\n";
+                        goto temp_jump;
+                    }
+                    args[arg_index] = toint(constant);
+                    ++arg_index;
+                    ++k; //bypassing ')'
+                    if (k == arg_name.size() || arg_name[k] != '$')
+                    {
+                        std::cout << "Reg in sw or lw is not valid\n";
+                    }
+                    ++k; //bypassing '$'
+                    while (k != arg_name.size() && arg_name[k] != ')')
+                    {
+                        register_inside_paren.push_back(arg_name[k]);
+                        ++k;
+                    }
+                    if (register_inside_paren.size() == 0 || reg_name_to_num.find(register_inside_paren) == reg_name_to_num.end())
+                    {
+                        std::cout << "Reg in sw or lw is not valid\n";
+                        goto temp_jump;
+                    }
+                    args[arg_index] = reg_name_to_num[register_inside_paren];
+                    ++arg_index;
+                }
             }
             else
             {
@@ -396,13 +460,87 @@ void run_command(std::vector< std::string > & command, std::unordered_map< std::
             }
         }
         ++index;
-    }    
+    }
+    
 temp_jump:
-    std::cout << op_code << ' ' << args[0] << ' ' << args[1] << ' ' << args[2] << std::endl;
+    if (op_code != -1) execute_command(op_code, args, arg_index, ram, registers, pc, pc_changed, reg_name_to_num);
     return;
 }
 
-void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num)
+void execute_command(int op_code, int args[], int arg_index, int ram[], int registers[], int & pc, bool & pc_changed, std::unordered_map< std::string, int > & reg_name_to_num)
+{
+    std::cout << "Command executed: " << op_code << ' ' << args[0] << ' ' << args[1] << ' ' << args[2] << ' ' << arg_index << std::endl;
+    bool command_invalid = false;
+    bool end_program = false;
+    int temp; //for MOVE
+    switch (op_code)
+    {
+        case SYSCALL:
+            syscall(registers, ram, reg_name_to_num, end_program);
+            if (end_program)
+            {
+                pc_changed = true;
+                pc = -1;
+            }
+            break;
+        case LI:
+            if (arg_index != 2)
+            {
+                command_invalid = true;
+                break;
+            }
+            registers[args[0]] = args[1];
+            break;
+        case LA:
+            if (arg_index != 2)
+            {
+                command_invalid = true;
+                break;
+            }
+            registers[args[0]] = args[1];
+            break;
+        case MOVE:
+            if (arg_index != 2)
+            {
+                command_invalid = true;
+                break;
+            }
+            temp = registers[args[0]];
+            registers[args[0]] = registers[args[1]];
+            registers[args[1]] = temp;
+            break;
+        case ADD:
+            if (arg_index != 3)
+            {
+                command_invalid = true;
+                break;
+            }
+            registers[args[0]] = registers[args[1]] + registers[args[2]];
+            break;
+        case SUB:
+            if (arg_index != 3)
+            {
+                command_invalid = true;
+                break;
+            }
+            registers[args[0]] = registers[args[1]] - registers[args[2]];
+            break;
+        case LW:
+            break;
+        case SW:
+            break;
+        case J:
+            break;
+        case JR:
+            break;
+        case JAL:
+            break;
+    }
+    if (command_invalid) std::cout << "syntax error pc: " << pc << std::endl;
+    return;
+}
+
+void syscall(int registers[], int ram[], std::unordered_map< std::string, int > & reg_name_to_num, bool & end_program)
 {
     int v0 = registers[reg_name_to_num["v0"]];
     if (v0 == 1) //print int
@@ -416,6 +554,11 @@ void syscall(int registers[], int ram[], std::unordered_map< std::string, int > 
     if (v0 == 5) //read int
     {
         std::cin >> registers[reg_name_to_num["a0"]];
+    }
+    if (v0 == 10) //end the program
+    {
+        end_program = true;
+        std::cout << "Program should end" << std::endl;
     }
     return;
 }

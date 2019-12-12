@@ -1,13 +1,19 @@
         .text
         .globl main
 main:
-        jal function
-        beq $a0, $a1, function
+        li $v0, 5  #input
+        syscall
+        move $s0, $a0 #s0 = first_input()
+        syscall
+        move $s1, $a0 #s1 = second_input()
+        add $a0, $s0, $s1 #a0 = s0 + s1
+        li $v0, 1
+        syscall
+        li $v0, 10
+        syscall
         
-function: li $v0, 1   ## test_comment
-          add $v0, $v0, $v1
-          j main      
-         .data
+ 
+        .data
 board:
 test2:  .asciiz "Hello world\n\""
-check_function: .word 1 2 test2 function
+check_function: .word -1 2 test2 function
