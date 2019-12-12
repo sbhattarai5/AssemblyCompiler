@@ -73,7 +73,7 @@ int main()
     //print_tokens(tokens);
     //print_registers(registers, reg_num_to_name);
     run_the_program(tokens, labels_to_pc, label_to_ram_address, reg_name_to_num, registers, ram);
-    //print_ram(ram);
+    print_ram(ram);
     //registers[reg_name_to_num["a0"]] = label_to_ram_address["test2"];
     //registers[reg_name_to_num["v0"]] = 4;
     //bool temp;
@@ -93,7 +93,7 @@ void print_ram(int ram[])
 void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[], std::unordered_map< std::string, int > & labels_to_pc, std::unordered_map< std::string, int > & label_to_ram_address)
 {
     bool data_segment = false;
-    int ram_index = RAM_SIZE / 4;
+    int ram_index = RAM_SIZE;
     for (int i = 0; i < tokens.size(); ++i)
     {
         std::vector< std::string > line = tokens[i];
@@ -123,7 +123,7 @@ void init_ram_label(std::vector< std::vector< std::string > > & tokens, int ram[
 std::string give_asciiz(int ram[], int ram_index)
 {
     std::string ascii_string;
-    int index = ram_index + 1;
+    int index = ram_index/4 + 1;
     while (ram[index] != '"')
     {
         if (ram[index] == '\\')
@@ -154,8 +154,8 @@ void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std
         {
             for (int k = 0; k < line[j].size(); ++k)
             {
-                ram[ram_index] = line[j][k];
-                ++ram_index;
+                ram[ram_index / 4] = line[j][k];
+                ram_index += 4;
             }
         }
         
@@ -166,20 +166,20 @@ void add_data_to_ram(int data_type, int ram[], int & ram_index, std::vector< std
         {
             if (isint(line[j]))
             {
-                ram[ram_index] = toint(line[j]);
-                ++ram_index;
+                ram[ram_index / 4] = toint(line[j]);
+                ram_index += 4;
             }
             else
             {
                 if (labels_to_pc.find(line[j]) != labels_to_pc.end()) 
                 {
-                    ram[ram_index] = labels_to_pc[line[j]];
-                    ++ram_index;
+                    ram[ram_index / 4] = labels_to_pc[line[j]];
+                    ram_index += 4;
                 }
                 else if (label_to_ram_address.find(line[j]) != label_to_ram_address.end())
                 {
-                    ram[ram_index] = label_to_ram_address[line[j]];
-                    ++ram_index;
+                    ram[ram_index / 4] = label_to_ram_address[line[j]];
+                    ram_index += 4;
                 }
             }
         }
@@ -262,7 +262,7 @@ void initialize_reg_num_and_name(std::unordered_map< std::string, int > & reg_na
         reg_name_to_num[r_name[i]] = i;
         reg_num_to_name[i] = r_name[i];
     }
-    registers[29] = RAM_SIZE / 4; // $sp
+    registers[29] = RAM_SIZE; // $sp
     return;
 }
 
@@ -526,14 +526,50 @@ void execute_command(int op_code, int args[], int arg_index, int ram[], int regi
             registers[args[0]] = registers[args[1]] - registers[args[2]];
             break;
         case LW:
+            if (arg_index != 3)
+            {
+                command_invalid = true;
+                break;
+            }
+            temp = registers[args[2]];
+            if (temp % 4 != 0 || args[1] % 4 != 0)
+            {
+                command_invalid = true;
+                break;
+            }
+            temp = (temp + args[1]) / 4;
+            registers[args[0]] = ram[temp];
             break;
         case SW:
+            if (arg_index != 3)
             break;
         case J:
+            if (arg_index != 1)
+            {
+                command_invalid = true;
+                break;
+            }
+            pc = args[0];
+            pc_changed = true;
             break;
         case JR:
+            if (arg_index != 1)
+            {
+                command_invalid = true;
+                break;
+            }
+            pc = registers[args[0]];
+            pc_changed = true;
             break;
         case JAL:
+            if (arg_index != 1)
+            {
+                command_invalid = true;
+                break;
+            }
+            registers[reg_name_to_num["ra"]] = pc + 1;
+            pc = args[0];
+            pc_changed = true;
             break;
     }
     if (command_invalid) std::cout << "syntax error pc: " << pc << std::endl;
