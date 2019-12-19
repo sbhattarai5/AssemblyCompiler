@@ -12,9 +12,12 @@ add:
 
 main:
         jal add
+        la $a0, NEWLINE
+        li $v0, 4
+        syscall
         li $v0, 10
         syscall
-
+        
         .data
         
 NEWLINE: .asciiz   "\n"
